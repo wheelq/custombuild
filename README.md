@@ -30,7 +30,7 @@ if err != nil {
 }
 
 // Build for ARMv6 Linux
-err = builder.BuildARM("linux", 7, "./custom_build_arm")
+err = builder.BuildARM("linux", 6, "./custom_build_arm")
 if err != nil {
 	log.Fatal(err)
 }
