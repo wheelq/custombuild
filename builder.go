@@ -13,6 +13,10 @@ import (
 	"time"
 )
 
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
+
 // Builder is a type that is able of producing a certain custom build.
 type Builder struct {
 	// The path to the root of the original repository
