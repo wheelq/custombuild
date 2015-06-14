@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -184,53 +185,34 @@ func (b *Builder) BuildARM(goos string, arm int, output string) error {
 // deepCopy makes a deep file copy of src into dest, overwriting any existing files.
 // If an error occurs, not all files were copied successfully. This function blocks.
 func deepCopy(src string, dest string) error {
-	srcinfo, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-	srcfile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer srcfile.Close()
-
-	files, err := srcfile.Readdir(-1) // TODO: optimize this for large directories
-	if err != nil {
-		return err
-	}
-
-	for _, finfo := range files {
-		name := finfo.Name()
-		if name == "" || name[0] == '.' {
-			continue // don't copy hidden/system files or files without a name
-		}
-
-		fullSrc := filepath.Join(src, name)
-		fullDest := filepath.Join(dest, name)
-
-		if finfo.IsDir() {
-			err = deepCopy(fullSrc, fullDest)
-			if err != nil {
-				return err
-			}
-			continue
-		}
-
-		// Make sure destination exists
-		err = os.MkdirAll(dest, srcinfo.Mode()&os.ModePerm)
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		// error accessing current file
 		if err != nil {
 			return err
 		}
 
-		// Open source and create destination
-		fsrc, err := os.Open(fullSrc)
+		// don't copy hidden/system files or files without a name.
+		if info.Name() == "" || info.Name()[0] == '.'{
+			return nil
+		}
+
+		// if directory, create destination directory.
+		if info.IsDir() {
+			subdir := strings.TrimPrefix(path, src)
+			destdir := filepath.Join(dest, subdir)
+			return os.MkdirAll(destdir, info.Mode()&os.ModePerm)
+		}
+
+		// open source file
+		fsrc, err := os.Open(path)
 		if err != nil {
 			return err
 		}
 
-		fdest, err := os.OpenFile(fullDest, os.O_RDWR|os.O_CREATE|os.O_TRUNC, finfo.Mode()&os.ModePerm)
+		// open destination file
+		destpath := strings.TrimPrefix(path, src)
+		fdest, err := os.OpenFile(destpath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, info.Mode()&os.ModePerm)
 		if err != nil {
-			fsrc.Close()
 			return err
 		}
 
@@ -254,9 +236,8 @@ func deepCopy(src string, dest string) error {
 		if err = fdest.Close(); err != nil {
 			return err
 		}
-	}
-
-	return nil
+		return nil
+	})
 }
 
 // CodeGenFunc is a function that generates/mutates Go code to
