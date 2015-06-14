@@ -56,7 +56,7 @@ func (b *Builder) Setup() error {
 	}
 
 	// Run `go get -u` on the dependencies for this build
-	err := b.updatePackages()
+	err := b.goGet(b.Packages)
 	if err != nil {
 		return err
 	}
@@ -83,26 +83,25 @@ func (b *Builder) Setup() error {
 	return nil
 }
 
-// updatePackages runs `go get -u` for all the packages in b.Packages.
+// goGet runs `go get -u -d -f` for all the packages in pkgs.
 // This function is blocking. If an error was returned, not all
-// packages were updated. The process will be killed if it takes too
-// long, which will also produce an error.
-func (b *Builder) updatePackages() error {
-	if len(b.Packages) == 0 {
+// packages were updated. The process will be killed if it
+// takes too long, which will then return an error.
+func (b *Builder) goGet(pkgs []string) error {
+	if len(pkgs) == 0 {
 		// nothing to do
 		return nil
 	}
 
 	// Set timeout
-	timeout := b.timePerPackage * time.Duration(len(b.Packages))
+	timeout := b.timePerPackage * time.Duration(len(pkgs))
 	if timeout == 0 {
 		timeout = defaultGoGetTimeout
 	}
 
 	// Prepare command
-	args := append([]string{"get", "-u", "-f"}, b.Packages...)
+	args := append([]string{"get", "-u", "-d", "-f"}, pkgs...)
 	cmd := exec.Command("go", args...)
-	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
 	// Start process
