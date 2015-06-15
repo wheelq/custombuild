@@ -193,6 +193,9 @@ func deepCopy(src string, dest string) error {
 
 		// don't copy hidden/system files or files without a name.
 		if info.Name() == "" || info.Name()[0] == '.'{
+			if info.IsDir(){
+				return filepath.SkipDir
+			}
 			return nil
 		}
 
@@ -210,9 +213,10 @@ func deepCopy(src string, dest string) error {
 		}
 
 		// open destination file
-		destpath := strings.TrimPrefix(path, src)
+		destpath := filepath.Join(dest, strings.TrimPrefix(path, src))
 		fdest, err := os.OpenFile(destpath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, info.Mode()&os.ModePerm)
 		if err != nil {
+			fsrc.Close()
 			return err
 		}
 
