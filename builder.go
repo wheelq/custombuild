@@ -3,6 +3,9 @@ package custombuild
 import (
 	"errors"
 	"fmt"
+	"go/parser"
+	"go/printer"
+	"go/token"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -12,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/tools/go/ast/astutil"
 )
 
 func init() {
@@ -20,7 +25,7 @@ func init() {
 
 // Builder is a type that is able of producing a certain custom build.
 type Builder struct {
-	// The path to the root of the original repository
+	// The path to the root of the original source
 	RepoPath string
 
 	// The function that can change the code to prepare a custom build
@@ -35,13 +40,22 @@ type Builder struct {
 	// Path to temporary folder of the copy of the repository
 	repoCopy string
 
+	// GOPATH to use for Generator
+	goPath string
+
 	// Flag to ensure setup only occurs once
 	ready bool
 }
 
 // New creates a new Builder and calls Setup at the same time. This function is
 // blocking. If it returns without error, it is prepared to be used to build.
-func New(repo string, codegen CodeGenFunc, dependencies []string) (Builder, error) {
+// src can be path to source folder or path relative to GOPATH
+func New(src string, codegen CodeGenFunc, dependencies []string) (Builder, error) {
+	repo, err := validateSrc(src)
+	if err != nil {
+		return Builder{}, err
+	}
+
 	builder := Builder{
 		RepoPath:       repo,
 		Generator:      codegen,
@@ -66,8 +80,19 @@ func (b *Builder) Setup() error {
 		return err
 	}
 
-	// Make a temporary directory in which to modify the repository
-	b.repoCopy, err = ioutil.TempDir("", fmt.Sprintf("custombuild_%d_", rand.Intn(9999)))
+	randInt := rand.Intn(9999)
+	// Make a temporary GOPATH
+	b.goPath, err = ioutil.TempDir("", fmt.Sprintf("custombuild_%d_", randInt))
+	if err != nil {
+		return err
+	}
+
+	// prepend GOPATH with src directory to prevent import path issues
+	os.Setenv("GOPATH", b.goPath+string(filepath.ListSeparator)+os.Getenv("GOPATH"))
+
+	b.repoCopy = filepath.Join(b.goPath, "src", fmt.Sprintf("%s_%d_", filepath.Base(b.RepoPath), randInt))
+	// Create src directory
+	err = os.MkdirAll(b.repoCopy, os.FileMode(0700))
 	if err != nil {
 		return err
 	}
@@ -79,6 +104,7 @@ func (b *Builder) Setup() error {
 	}
 
 	// Mutate the code
+	//	err = b.Generator(filepath.Join(b.goPath, "src"), b.Packages)
 	err = b.Generator(b.repoCopy, b.Packages)
 	if err != nil {
 		return err
@@ -182,6 +208,66 @@ func (b *Builder) BuildARM(goos string, arm int, output string) error {
 	return cmd.Run()
 }
 
+// SetImportPath moves the source directory to a path corresponding to
+// importPath in GOPATH at runtime.
+// Should be set if source directory contains subpackages.
+func (b *Builder) SetImportPath(importPath string) error {
+	newDirectory := filepath.Join(b.goPath, "src", importPath)
+	if err := os.MkdirAll(newDirectory, os.FileMode(0700)); err != nil {
+		return err
+	}
+	err := os.Rename(b.repoCopy, newDirectory)
+	b.repoCopy = newDirectory
+	return err
+}
+
+// RewriteImportsFrom rewrites import path from importPath to a path relative to
+// the source directory at runtime.
+func (b *Builder) RewriteImportsFrom(importPath string) error {
+	newPath := filepath.Base(b.repoCopy)
+	return b.RewriteImports(importPath, newPath)
+}
+
+// RewriteImports rewrites import paths equal to or prefixed with oldPath
+// for source directory and subpackages from oldPath to newPath
+func (b *Builder) RewriteImports(oldPath, newPath string) error {
+	return filepath.Walk(b.repoCopy, func(path string, info os.FileInfo, err error) error {
+		if info.IsDir() && strings.HasPrefix(info.Name(), ".") {
+			return filepath.SkipDir
+		}
+		if filepath.Ext(path) != ".go" {
+			return nil
+		}
+		return rewritePath(path, oldPath, newPath)
+	})
+}
+
+// rewritePath rewrites import paths in file from oldPath to newPath
+func rewritePath(file, oldPath, newPath string) error {
+	stat, err := os.Stat(file)
+	if err != nil {
+		return err
+	}
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, file, nil, 0)
+	if err != nil {
+		return err
+	}
+	for _, imp := range f.Imports {
+		impPath, _ := strconv.Unquote(imp.Path.Value)
+		if strings.HasPrefix(impPath, oldPath) {
+			subpackage := strings.TrimPrefix(impPath, oldPath)
+			astutil.RewriteImport(fset, f, impPath, newPath+subpackage)
+		}
+	}
+	ofile, err := os.OpenFile(file, os.O_RDWR|os.O_TRUNC, stat.Mode())
+	if err != nil {
+		return err
+	}
+	defer ofile.Close()
+	return printer.Fprint(ofile, fset, f)
+}
+
 // deepCopy makes a deep file copy of src into dest, overwriting any existing files.
 // If an error occurs, not all files were copied successfully. This function blocks.
 func deepCopy(src string, dest string) error {
@@ -192,8 +278,8 @@ func deepCopy(src string, dest string) error {
 		}
 
 		// don't copy hidden/system files or files without a name.
-		if info.Name() == "" || info.Name()[0] == '.'{
-			if info.IsDir(){
+		if info.Name() == "" || info.Name()[0] == '.' {
+			if info.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
@@ -244,11 +330,40 @@ func deepCopy(src string, dest string) error {
 	})
 }
 
+// validateSrc validates if src is a valid source directory. If the directory
+// is not present, it checks GOPATH for the package.
+// It returns the absolute path to the src directory if found.
+func validateSrc(src string) (string, error) {
+	// check if file exists
+	if _, err := os.Stat(src); err == nil {
+		return filepath.Abs(src)
+	}
+	// check if present in GOPATH
+	if r := absFromGoPath(src); r != "" {
+		return r, nil
+	}
+	// not valid
+	return "", fmt.Errorf("Invalid source directory")
+}
+
+// absFromGoPath fetches the absolute path to repo in GOPATH.
+// It returns the path if found and an empty string otherwise.
+func absFromGoPath(repo string) string {
+	gopaths := strings.Split(os.Getenv("GOPATH"), string(filepath.ListSeparator))
+	for _, gopath := range gopaths {
+		absPath := filepath.Join(gopath, "src", repo)
+		if _, err := os.Stat(absPath); err == nil {
+			return absPath
+		}
+	}
+	return ""
+}
+
 // CodeGenFunc is a function that generates/mutates Go code to
-// customize a build. It receives the path to a repository and
+// customize a build. It receives the path to the source root and
 // packages that are needed as dependencies.
-type CodeGenFunc func(repo string, packages []string) error
+type CodeGenFunc func(sourceDir string, packages []string) error
 
 // defaultGoGetTimeout is the duration that `go get -u` is allowed
 // to run, on average, per package.
-const defaultGoGetTimeout = 5 * time.Second
+const defaultGoGetTimeout = 30 * time.Second
