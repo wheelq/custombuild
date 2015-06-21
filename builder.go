@@ -43,13 +43,16 @@ type Builder struct {
 	// GOPATH to use for Generator
 	goPath string
 
+	// Flag to check if -u should be used with go get
+	useNetworkForAll bool
+
 	// Flag to ensure setup only occurs once
 	ready bool
 }
 
 // New creates a new Builder and calls Setup at the same time. This function is
 // blocking. If it returns without error, it is prepared to be used to build.
-// src can be path to source folder or path relative to GOPATH
+// src can be path to source folder or path relative to GOPATH.
 func New(src string, codegen CodeGenFunc, dependencies []string) (Builder, error) {
 	repo, err := validateSrc(src)
 	if err != nil {
@@ -61,8 +64,27 @@ func New(src string, codegen CodeGenFunc, dependencies []string) (Builder, error
 		Generator:      codegen,
 		Packages:       dependencies,
 		timePerPackage: defaultGoGetTimeout,
+		useNetworkForAll: true,
 	}
 	return builder, builder.Setup()
+}
+
+// NewUnreadyBuilder does same thing as New but unlike New, does not call Setup.
+// This is useful to modify some configurations before Setup. Setup must be
+// called before building.
+func NewUnreadyBuilder(src string, codegen CodeGenFunc, dependencies []string) (Builder, error) {
+	repo, err := validateSrc(src)
+	if err != nil {
+		return Builder{}, err
+	}
+
+	return Builder{
+		RepoPath:       repo,
+		Generator:      codegen,
+		Packages:       dependencies,
+		timePerPackage: defaultGoGetTimeout,
+		useNetworkForAll:true,
+	}, nil
 }
 
 // Setup sets up the builder. It downloads/updates the packages and copies
@@ -104,7 +126,6 @@ func (b *Builder) Setup() error {
 	}
 
 	// Mutate the code
-	//	err = b.Generator(filepath.Join(b.goPath, "src"), b.Packages)
 	err = b.Generator(b.repoCopy, b.Packages)
 	if err != nil {
 		return err
@@ -114,7 +135,15 @@ func (b *Builder) Setup() error {
 	return nil
 }
 
-// goGet runs `go get -u -d -f` for all the packages in pkgs.
+// UseNetworkForAll sets if network should be used to fetch all package dependencies
+// including previously fetched ones which basically uses -u flag for go get during Setup.
+// This defaults to true. To set to false, create builder with NewUnreadyBuilder and set
+// this to false before Setup.
+func (b *Builder) UseNetworkForAll(useNetwork bool){
+	b.useNetworkForAll = useNetwork
+}
+
+// goGet runs `go get` for all the packages in pkgs.
 // This function is blocking. If an error was returned, not all
 // packages were updated. The process will be killed if it
 // takes too long, which will then return an error.
@@ -131,7 +160,11 @@ func (b *Builder) goGet(pkgs []string) error {
 	}
 
 	// Prepare command
-	args := append([]string{"get", "-u", "-d", "-f"}, pkgs...)
+	args := []string{"get", "-d"}
+	if b.useNetworkForAll{
+		args = append(args, "-u", "-f")
+	}
+	args = append(args, pkgs...)
 	cmd := exec.Command("go", args...)
 	cmd.Stderr = os.Stderr
 
