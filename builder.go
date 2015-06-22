@@ -54,36 +54,28 @@ type Builder struct {
 // blocking. If it returns without error, it is prepared to be used to build.
 // src can be path to source folder or path relative to GOPATH.
 func New(src string, codegen CodeGenFunc, dependencies []string) (Builder, error) {
-	repo, err := validateSrc(src)
+	builder, err := NewUnready(src, codegen, dependencies)
 	if err != nil {
-		return Builder{}, err
-	}
-
-	builder := Builder{
-		RepoPath:       repo,
-		Generator:      codegen,
-		Packages:       dependencies,
-		timePerPackage: defaultGoGetTimeout,
-		useNetworkForAll: true,
+		return builder, err
 	}
 	return builder, builder.Setup()
 }
 
-// NewUnreadyBuilder does same thing as New but unlike New, does not call Setup.
-// This is useful to modify some configurations before Setup. Setup must be
-// called before building.
-func NewUnreadyBuilder(src string, codegen CodeGenFunc, dependencies []string) (Builder, error) {
+// NewUnready does same thing as New but unlike New, does not call Setup.
+// This is useful to modify some configurations before Setup. Setup must
+// still be called before building.
+func NewUnready(src string, codegen CodeGenFunc, dependencies []string) (Builder, error) {
 	repo, err := validateSrc(src)
 	if err != nil {
 		return Builder{}, err
 	}
 
 	return Builder{
-		RepoPath:       repo,
-		Generator:      codegen,
-		Packages:       dependencies,
-		timePerPackage: defaultGoGetTimeout,
-		useNetworkForAll:true,
+		RepoPath:         repo,
+		Generator:        codegen,
+		Packages:         dependencies,
+		timePerPackage:   defaultGoGetTimeout,
+		useNetworkForAll: true,
 	}, nil
 }
 
@@ -137,9 +129,9 @@ func (b *Builder) Setup() error {
 
 // UseNetworkForAll sets if network should be used to fetch all package dependencies
 // including previously fetched ones which basically uses -u flag for go get during Setup.
-// This defaults to true. To set to false, create builder with NewUnreadyBuilder and set
-// this to false before Setup.
-func (b *Builder) UseNetworkForAll(useNetwork bool){
+// This defaults to true. To set to false, create builder with NewUnready and set this
+// to false before Setup.
+func (b *Builder) UseNetworkForAll(useNetwork bool) {
 	b.useNetworkForAll = useNetwork
 }
 
@@ -161,7 +153,7 @@ func (b *Builder) goGet(pkgs []string) error {
 
 	// Prepare command
 	args := []string{"get", "-d"}
-	if b.useNetworkForAll{
+	if b.useNetworkForAll {
 		args = append(args, "-u", "-f")
 	}
 	args = append(args, pkgs...)
