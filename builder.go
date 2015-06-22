@@ -199,8 +199,8 @@ func (b *Builder) Teardown() error {
 }
 
 // Build does a custom build for goos and goarch. It plops the binary
-// at a file path specified by output. If arch == "arm", the default
-// ARM version is used.
+// at a file path specified by output. If goarch == "arm", the default
+// GOARM version is used.
 func (b *Builder) Build(goos, goarch, output string) error {
 	if !b.ready {
 		return errors.New("not set up")
@@ -216,9 +216,9 @@ func (b *Builder) Build(goos, goarch, output string) error {
 	return cmd.Run()
 }
 
-// BuildARM does a custom ARM build for goos using the specified ARM version.
-// It plops the binary at a file path specified by output.
-func (b *Builder) BuildARM(goos string, arm int, output string) error {
+// BuildARM does a custom ARM build for goos using the specified ARM version
+// in goarm. It plops the binary at a file path specified by output.
+func (b *Builder) BuildARM(goos string, goarm int, output string) error {
 	if !b.ready {
 		return errors.New("not set up")
 	}
@@ -229,7 +229,7 @@ func (b *Builder) BuildARM(goos string, arm int, output string) error {
 	cmd := exec.Command("go", "build", "-o", destination)
 	cmd.Dir = b.repoCopy
 	cmd.Stderr = os.Stderr
-	cmd.Env = append(os.Environ(), "GOOS="+goos, "GOARCH=arm", "GOARM="+strconv.Itoa(arm))
+	cmd.Env = append(os.Environ(), "GOOS="+goos, "GOARCH=arm", "GOARM="+strconv.Itoa(goarm))
 	return cmd.Run()
 }
 

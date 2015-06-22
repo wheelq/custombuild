@@ -1,7 +1,7 @@
 custombuild
 ============
 
-A fairly simple package that makes it easier to generate custom builds of your Go programs. *This package is still very experimental.*
+A fairly simple package that makes it easier to generate custom builds of your Go programs. *This package is still experimental.*
 
 It takes as input three things:
 
@@ -24,13 +24,13 @@ if err != nil {
 }
 
 // Build for 64-bit Windows
-err = builder.Build("windows", "amd64", "./custom_build_windows")
+err = builder.Build("windows", "amd64", "./windows_build.exe")
 if err != nil {
 	log.Fatal(err)
 }
 
 // Build for ARMv6 Linux
-err = builder.BuildARM("linux", 6, "./custom_build_arm")
+err = builder.BuildARM("linux", 6, "./arm_build")
 if err != nil {
 	log.Fatal(err)
 }
