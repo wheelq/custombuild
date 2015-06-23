@@ -118,9 +118,11 @@ func (b *Builder) Setup() error {
 	}
 
 	// Mutate the code
-	err = b.Generator(b.repoCopy, b.Packages)
-	if err != nil {
-		return err
+	if b.Generator != nil {
+		err = b.Generator(b.repoCopy, b.Packages)
+		if err != nil {
+			return err
+		}
 	}
 
 	b.ready = true
