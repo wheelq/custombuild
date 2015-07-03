@@ -48,6 +48,9 @@ type Builder struct {
 
 	// Flag to ensure setup only occurs once
 	ready bool
+
+	// Environment variables
+	env Env
 }
 
 // New creates a new Builder and calls Setup at the same time. This function is
@@ -65,7 +68,8 @@ func New(src string, codegen CodeGenFunc, dependencies []string) (Builder, error
 // This is useful to modify some configurations before Setup. Setup must
 // still be called before building.
 func NewUnready(src string, codegen CodeGenFunc, dependencies []string) (Builder, error) {
-	repo, err := validateSrc(src)
+	env := Env(os.Environ())
+	repo, err := validateSrc(env, src)
 	if err != nil {
 		return Builder{}, err
 	}
@@ -76,6 +80,7 @@ func NewUnready(src string, codegen CodeGenFunc, dependencies []string) (Builder
 		Packages:         dependencies,
 		timePerPackage:   defaultGoGetTimeout,
 		useNetworkForAll: true,
+		env:              env,
 	}, nil
 }
 
@@ -102,7 +107,7 @@ func (b *Builder) Setup() error {
 	}
 
 	// prepend GOPATH with src directory to prevent import path issues
-	os.Setenv("GOPATH", b.goPath+string(filepath.ListSeparator)+os.Getenv("GOPATH"))
+	b.env.Set("GOPATH", b.goPath+string(filepath.ListSeparator)+b.env.Get("GOPATH"))
 
 	b.repoCopy = filepath.Join(b.goPath, "src", fmt.Sprintf("%s_%d_", filepath.Base(b.RepoPath), randInt))
 	// Create src directory
@@ -161,6 +166,7 @@ func (b *Builder) goGet(pkgs []string) error {
 	args = append(args, pkgs...)
 	cmd := exec.Command("go", args...)
 	cmd.Stderr = os.Stderr
+	cmd.Env = b.env
 
 	// Start process
 	err := cmd.Start()
@@ -214,7 +220,7 @@ func (b *Builder) Build(goos, goarch, output string) error {
 	cmd := exec.Command("go", "build", "-o", destination)
 	cmd.Dir = b.repoCopy
 	cmd.Stderr = os.Stderr
-	cmd.Env = append(os.Environ(), "GOOS="+goos, "GOARCH="+goarch)
+	cmd.Env = append(b.env, "GOOS="+goos, "GOARCH="+goarch)
 	return cmd.Run()
 }
 
@@ -231,7 +237,7 @@ func (b *Builder) BuildARM(goos string, goarm int, output string) error {
 	cmd := exec.Command("go", "build", "-o", destination)
 	cmd.Dir = b.repoCopy
 	cmd.Stderr = os.Stderr
-	cmd.Env = append(os.Environ(), "GOOS="+goos, "GOARCH=arm", "GOARM="+strconv.Itoa(goarm))
+	cmd.Env = append(b.env, "GOOS="+goos, "GOARCH=arm", "GOARM="+strconv.Itoa(goarm))
 	return cmd.Run()
 }
 
@@ -360,13 +366,13 @@ func deepCopy(src string, dest string) error {
 // validateSrc validates if src is a valid source directory. If the directory
 // is not present, it checks GOPATH for the package.
 // It returns the absolute path to the src directory if found.
-func validateSrc(src string) (string, error) {
+func validateSrc(env Env, src string) (string, error) {
 	// check if file exists
 	if _, err := os.Stat(src); err == nil {
 		return filepath.Abs(src)
 	}
 	// check if present in GOPATH
-	if r := absFromGoPath(src); r != "" {
+	if r := absFromGoPath(env.Get("GOPATH"), src); r != "" {
 		return r, nil
 	}
 	// not valid
@@ -375,12 +381,45 @@ func validateSrc(src string) (string, error) {
 
 // absFromGoPath fetches the absolute path to repo in GOPATH.
 // It returns the path if found and an empty string otherwise.
-func absFromGoPath(repo string) string {
-	gopaths := strings.Split(os.Getenv("GOPATH"), string(filepath.ListSeparator))
-	for _, gopath := range gopaths {
-		absPath := filepath.Join(gopath, "src", repo)
+func absFromGoPath(gopath string, repo string) string {
+	gopaths := strings.Split(gopath, string(filepath.ListSeparator))
+	for _, gp := range gopaths {
+		absPath := filepath.Join(gp, "src", repo)
 		if _, err := os.Stat(absPath); err == nil {
 			return absPath
+		}
+	}
+	return ""
+}
+
+// Env represents environment variables
+type Env []string
+
+// Set sets the environment key to value.
+func (e Env) Set(key, value string) {
+	keyVal := key + "=" + value
+	for i, v := range e {
+		env := strings.SplitN(v, "=", 2)
+		if len(env) < 2 {
+			continue
+		}
+		if env[0] == key {
+			e[i] = keyVal
+			break
+		}
+	}
+	e = append(e, keyVal)
+}
+
+// Get retrieves the environment variable key
+func (e Env) Get(key string) string {
+	for _, v := range e {
+		env := strings.SplitN(v, "=", 2)
+		if len(env) < 2 {
+			continue
+		}
+		if env[0] == key {
+			return env[1]
 		}
 	}
 	return ""
