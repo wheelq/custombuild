@@ -210,23 +210,26 @@ func (b *Builder) Teardown() error {
 // at a file path specified by output. If goarch == "arm", the default
 // GOARM version is used.
 func (b *Builder) Build(goos, goarch, output string, args ...string) error {
-	if !b.ready {
-		return errors.New("not set up")
-	}
-	destination, err := filepath.Abs(output)
-	if err != nil {
-		return err
-	}
-	cmd := exec.Command("go", append([]string{"build", "-o", destination}, args...)...)
-	cmd.Dir = b.repoCopy
-	cmd.Stderr = os.Stderr
-	cmd.Env = append(b.env, "GOOS="+goos, "GOARCH="+goarch)
-	return cmd.Run()
+	return b.build(goos, goarch, "", output, false, args...)
 }
 
 // BuildARM does a custom ARM build for goos using the specified ARM version
 // in goarm. It plops the binary at a file path specified by output.
 func (b *Builder) BuildARM(goos string, goarm int, output string, args ...string) error {
+	return b.build(goos, "arm", strconv.Itoa(goarm), output, false, args...)
+}
+
+// BuildStatic does the same thing Build but the output is a static executable.
+func (b *Builder) BuildStatic(goos, goarch, output string, args ...string) error {
+	return b.build(goos, goarch, "", output, true, args...)
+}
+
+// BuildStaticARM does the same thing BuildARM but the output is a static executable.
+func (b *Builder) BuildStaticARM(goos string, goarm int, output string, args ...string) error {
+	return b.build(goos, "arm", strconv.Itoa(goarm), output, true, args...)
+}
+
+func (b *Builder) build(goos, goarch, goarm, output string, static bool, args ...string) error {
 	if !b.ready {
 		return errors.New("not set up")
 	}
@@ -237,7 +240,10 @@ func (b *Builder) BuildARM(goos string, goarm int, output string, args ...string
 	cmd := exec.Command("go", append([]string{"build", "-o", destination}, args...)...)
 	cmd.Dir = b.repoCopy
 	cmd.Stderr = os.Stderr
-	cmd.Env = append(b.env, "GOOS="+goos, "GOARCH=arm", "GOARM="+strconv.Itoa(goarm))
+	cmd.Env = append(b.env, "GOOS="+goos, "GOARCH="+goarch, "GOARM="+goarm)
+	if static {
+		cmd.Env = append(cmd.Env, "CGO_ENABLED=0")
+	}
 	return cmd.Run()
 }
 
