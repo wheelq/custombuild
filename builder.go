@@ -219,12 +219,14 @@ func (b *Builder) BuildARM(goos string, goarm int, output string, args ...string
 	return b.build(goos, "arm", strconv.Itoa(goarm), output, false, args...)
 }
 
-// BuildStatic does the same thing Build but the output is a static executable.
+// BuildStatic does the same thing Build but the output is a static executable. Assumes
+// the Go standard library was built with CGO_ENABLED=0.
 func (b *Builder) BuildStatic(goos, goarch, output string, args ...string) error {
 	return b.build(goos, goarch, "", output, true, args...)
 }
 
-// BuildStaticARM does the same thing BuildARM but the output is a static executable.
+// BuildStaticARM does the same thing BuildARM but the output is a static executable, assuming
+// the Go standard library was built with CGO_ENABLED=0.
 func (b *Builder) BuildStaticARM(goos string, goarm int, output string, args ...string) error {
 	return b.build(goos, "arm", strconv.Itoa(goarm), output, true, args...)
 }
