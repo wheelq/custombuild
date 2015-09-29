@@ -203,7 +203,7 @@ func (b *Builder) Teardown() error {
 	if !b.ready {
 		return errors.New("not set up")
 	}
-	return os.RemoveAll(b.repoCopy)
+	return os.RemoveAll(b.goPath)
 }
 
 // Build does a custom build for goos and goarch. It plops the binary
