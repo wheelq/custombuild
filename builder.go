@@ -1,6 +1,8 @@
 package custombuild
 
 import (
+	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"go/parser"
@@ -73,7 +75,6 @@ func NewUnready(src string, codegen CodeGenFunc, dependencies []string) (Builder
 	if err != nil {
 		return Builder{}, err
 	}
-
 	return Builder{
 		RepoPath:         repo,
 		Generator:        codegen,
@@ -165,13 +166,14 @@ func (b *Builder) goGet(pkgs []string) error {
 	}
 	args = append(args, pkgs...)
 	cmd := exec.Command("go", args...)
-	cmd.Stderr = os.Stderr
+	errBuf := new(bytes.Buffer)
+	cmd.Stderr = errBuf
 	cmd.Env = b.env
 
 	// Start process
 	err := cmd.Start()
 	if err != nil {
-		return err
+		return errorFmt(cmd, err, errBuf)
 	}
 
 	// Wait for it to exit
@@ -186,16 +188,31 @@ func (b *Builder) goGet(pkgs []string) error {
 		err := cmd.Process.Kill()
 		<-done
 		if err != nil {
-			return err
+			return errorFmt(cmd, err, errBuf)
 		}
-		return errors.New("process killed: go get took too long")
+		return errorFmt(cmd, errors.New("process killed: go get took too long"), errBuf)
 	case err := <-done:
 		if err != nil {
-			return err
+			return errorFmt(cmd, err, errBuf)
 		}
 	}
 
 	return nil
+}
+
+// errorFmt produces an error that prints nicely to a log file. It is
+// for use when an external command ends unsucessfully. Pass in the cmd
+// that was executed, the err it returned, and the buf containing its
+// stderr (and maybe stdout if you want the full story). The log entry
+// will be multiple lines but subsequent lines will be indented.
+func errorFmt(cmd *exec.Cmd, err error, buf io.Reader) error {
+	const prefix = "\n---- "
+	result := fmt.Sprintf("%s%sCOMMAND: %s%s", err.Error(), prefix, strings.Join(cmd.Args, " "), prefix)
+	scanner := bufio.NewScanner(buf)
+	for scanner.Scan() {
+		result += prefix + scanner.Text()
+	}
+	return errors.New(result)
 }
 
 // Teardown cleans up the assets that were created by a call to Setup.
@@ -241,12 +258,16 @@ func (b *Builder) build(goos, goarch, goarm, output string, static bool, args ..
 	}
 	cmd := exec.Command("go", append([]string{"build", "-o", destination}, args...)...)
 	cmd.Dir = b.repoCopy
-	cmd.Stderr = os.Stderr
+	errBuf := new(bytes.Buffer)
+	cmd.Stderr = errBuf
 	cmd.Env = append(b.env, "GOOS="+goos, "GOARCH="+goarch, "GOARM="+goarm)
 	if static {
 		cmd.Env = append(cmd.Env, "CGO_ENABLED=0")
 	}
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return errorFmt(cmd, err, errBuf)
+	}
+	return nil
 }
 
 // SetImportPath moves the source directory to a path corresponding to
