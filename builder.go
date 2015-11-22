@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -118,7 +119,7 @@ func (b *Builder) Setup() error {
 	}
 
 	// Copy the repository to temporary directory
-	err = deepCopy(b.RepoPath, b.repoCopy)
+	err = DeepCopy(b.RepoPath, b.repoCopy)
 	if err != nil {
 		return err
 	}
@@ -278,6 +279,10 @@ func (b *Builder) SetImportPath(importPath string) error {
 	if err := os.MkdirAll(newDirectory, os.FileMode(0700)); err != nil {
 		return err
 	}
+	// destination directory must not exist on Windows before renaming.
+	if runtime.GOOS == "windows" {
+		os.Remove(newDirectory)
+	}
 	err := os.Rename(b.repoCopy, newDirectory)
 	b.repoCopy = newDirectory
 	return err
@@ -330,9 +335,10 @@ func rewritePath(file, oldPath, newPath string) error {
 	return printer.Fprint(ofile, fset, f)
 }
 
-// deepCopy makes a deep file copy of src into dest, overwriting any existing files.
+// DeepCopy makes a deep file copy of src into dest, overwriting any existing files.
 // If an error occurs, not all files were copied successfully. This function blocks.
-func deepCopy(src string, dest string) error {
+// Hidden/system/nameless files are skipped.
+func DeepCopy(src string, dest string) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		// error accessing current file
 		if err != nil {
