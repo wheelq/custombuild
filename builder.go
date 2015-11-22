@@ -281,7 +281,7 @@ func (b *Builder) SetImportPath(importPath string) error {
 	}
 	// destination directory must not exist on Windows before renaming.
 	if runtime.GOOS == "windows" {
-		os.Remove(newDirectory)
+		os.RemoveAll(newDirectory)
 	}
 	err := os.Rename(b.repoCopy, newDirectory)
 	b.repoCopy = newDirectory
