@@ -37,6 +37,18 @@ type Builder struct {
 	// The list of packages required for this custom build
 	Packages []string
 
+	// CommandName is the command to execute to perform the builds.
+	// If not set, will default to "go" (go build). Useful if
+	// using own build script.
+	CommandName string
+
+	// CommandArgs is the list of args to pass to CommandName. Will
+	// only be used if CommandName is set. NOTE: The destination
+	// (output) of the built file will always be appended as the last
+	// argument, and then any custom arguments for that build will
+	// be appended (as passed into the actual Build* method).
+	CommandArgs []string
+
 	// Length of time on average to allow each package during go get -u
 	timePerPackage time.Duration
 
@@ -257,7 +269,13 @@ func (b *Builder) build(goos, goarch, goarm, output string, static bool, args ..
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command("go", append([]string{"build", "-o", destination}, args...)...)
+	cmdName := "go"
+	cmdArgs := append([]string{"build", "-o", destination}, args...)
+	if b.CommandName != "" {
+		cmdName = b.CommandName
+		cmdArgs = append(append(b.CommandArgs, destination), args...)
+	}
+	cmd := exec.Command(cmdName, cmdArgs...)
 	cmd.Dir = b.repoCopy
 	errBuf := new(bytes.Buffer)
 	cmd.Stderr = errBuf
