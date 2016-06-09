@@ -13,6 +13,7 @@ import (
 	"math/rand"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -48,6 +49,10 @@ type Builder struct {
 	// argument, and then any custom arguments for that build will
 	// be appended (as passed into the actual Build* method).
 	CommandArgs []string
+
+	// Subpackage to build.
+	// If empty, topmost package is built.
+	SubPackage string
 
 	// Length of time on average to allow each package during go get -u
 	timePerPackage time.Duration
@@ -276,7 +281,7 @@ func (b *Builder) build(goos, goarch, goarm, output string, static bool, args ..
 		cmdArgs = append(append(b.CommandArgs, destination), args...)
 	}
 	cmd := exec.Command(cmdName, cmdArgs...)
-	cmd.Dir = b.repoCopy
+	cmd.Dir = path.Join(b.repoCopy, b.SubPackage)
 	errBuf := new(bytes.Buffer)
 	cmd.Stderr = errBuf
 	cmd.Env = append(b.env, "GOOS="+goos, "GOARCH="+goarch, "GOARM="+goarm)
@@ -449,19 +454,19 @@ func absFromGoPath(gopath string, repo string) string {
 type Env []string
 
 // Set sets the environment key to value.
-func (e Env) Set(key, value string) {
+func (e *Env) Set(key, value string) {
 	keyVal := key + "=" + value
-	for i, v := range e {
+	for i, v := range *e {
 		env := strings.SplitN(v, "=", 2)
 		if len(env) < 2 {
 			continue
 		}
 		if env[0] == key {
-			e[i] = keyVal
+			(*e)[i] = keyVal
 			break
 		}
 	}
-	e = append(e, keyVal)
+	*e = append(*e, keyVal)
 }
 
 // Get retrieves the environment variable key
