@@ -299,9 +299,11 @@ func (b *Builder) build(goos, goarch, goarm, output string, static bool, args ..
 // Should be set if source directory contains subpackages.
 func (b *Builder) SetImportPath(importPath string) error {
 	newDirectory := filepath.Join(b.goPath, "src", importPath)
-	if err := os.MkdirAll(newDirectory, os.FileMode(0700)); err != nil {
+
+	if err := os.MkdirAll(b.baseImportPath(newDirectory), os.FileMode(0700)); err != nil {
 		return err
 	}
+
 	// destination directory must not exist on Windows before renaming.
 	if runtime.GOOS == "windows" {
 		os.RemoveAll(newDirectory)
@@ -309,6 +311,10 @@ func (b *Builder) SetImportPath(importPath string) error {
 	err := os.Rename(b.repoCopy, newDirectory)
 	b.repoCopy = newDirectory
 	return err
+}
+
+func (b *Builder) baseImportPath(importPath string) string {
+	return strings.TrimSuffix(importPath, filepath.Base(importPath))
 }
 
 // RewriteImportsFrom rewrites import path from importPath to a path relative to
